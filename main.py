@@ -1,55 +1,63 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from twilio.twiml.messaging_response import MessagingResponse
-from dotenv import load_dotenv
-import os
-import re
 from openai import OpenAI
-
-# load environment variables
-load_dotenv()
+import os
 
 app = FastAPI()
 
-# OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-CLINIC_NAME = os.getenv("CLINIC_NAME", "Example Med Spa")
-CLINIC_PHONE = os.getenv("CLINIC_PHONE", "+1XXXXXXXXXX")
+CLINIC_NAME = "ID Eye & Aesthetics"
+CLINIC_PHONE = "+18772682880"
 
-# words that indicate emergency situations
-URGENT_PATTERNS = [
-    r"sudden vision loss",
-    r"flashes",
-    r"floaters",
-    r"curtain",
-    r"severe pain",
-    r"trouble breathing",
-    r"chest pain"
-]
-
-def is_urgent(text: str):
-    text = text.lower()
-    for pattern in URGENT_PATTERNS:
-        if re.search(pattern, text):
-            return True
-    return False
-
+conversations = {}
 
 SYSTEM_PROMPT = f"""
-You are an AI receptionist for {CLINIC_NAME}.
+You are the front desk receptionist for {CLINIC_NAME}.
 
-Your job is to:
-- help schedule appointments
-- answer service questions
-- collect lead information (name, service, preferred appointment time)
+Your job is to help patients:
+- schedule appointments
+- reschedule appointments
+- answer basic clinic questions
 
 Rules:
-- Do NOT diagnose medical conditions
-- If the message sounds urgent tell them to call {CLINIC_PHONE}
-- Keep replies short (1-3 sentences)
-- Ask one question at a time
+- Sound warm and natural like a real receptionist.
+- Keep responses short.
+- Ask one question at a time.
+- Never give medical advice.
+- If something sounds urgent tell them to call {CLINIC_PHONE}.
+
+When scheduling collect:
+1. patient name
+2. appointment type
+3. preferred day
+4. preferred time
 """
+
+def ask_ai(phone_number, message):
+
+    if phone_number not in conversations:
+        conversations[phone_number] = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ]
+
+    conversations[phone_number].append(
+        {"role": "user", "content": message}
+    )
+
+    completion = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=conversations[phone_number]
+    )
+
+    reply = completion.choices[0].message.content
+
+    conversations[phone_number].append(
+        {"role": "assistant", "content": reply}
+    )
+
+    return reply
 
 
 @app.post("/sms")
@@ -57,34 +65,11 @@ async def sms_reply(request: Request):
 
     form = await request.form()
     incoming_msg = form.get("Body")
+    from_number = form.get("From")
 
-    twiml = MessagingResponse()
+    ai_response = ask_ai(from_number, incoming_msg)
 
-    # emergency check
-    if is_urgent(incoming_msg):
-        twiml.message(
-            f"This may be urgent. Please call us immediately at {CLINIC_PHONE}. "
-            "If symptoms are severe seek emergency care."
-        )
-        return Response(content=str(twiml), media_type="text/xml")
+    twilio_resp = MessagingResponse()
+    twilio_resp.message(ai_response)
 
-    # AI response
-    completion = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": incoming_msg}
-        ],
-        temperature=0.4
-    )
-
-    ai_reply = completion.choices[0].message.content
-
-    twiml.message(ai_reply)
-
-    return Response(content=str(twiml), media_type="text/xml")
-
-
-@app.get("/")
-def home():
-    return {"status": "AI clinic bot running"}
+    return Response(content=str(twilio_resp), media_type="application/xml")
