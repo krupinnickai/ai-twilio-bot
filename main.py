@@ -28,7 +28,7 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 SMS_MODEL = os.getenv("SMS_MODEL", "gpt-4.1-mini")
 VOICE_MODEL = os.getenv("VOICE_MODEL", "gpt-realtime")
-VOICE_NAME = os.getenv("VOICE_NAME", "marin")
+VOICE_NAME = os.getenv("VOICE_NAME", "marin")  # try cedar if you prefer
 
 CLINIC_NAME = os.getenv("CLINIC_NAME", "ID Eye & Aesthetics")
 CLINIC_PHONE = os.getenv("CLINIC_PHONE", "+1 877-268-2880")
@@ -47,7 +47,7 @@ AI_GREETS_FIRST = os.getenv("AI_GREETS_FIRST", "true").lower() == "true"
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# In-memory SMS history for testing
+# Simple in-memory SMS history for testing
 sms_conversations: Dict[str, List[Dict[str, str]]] = {}
 
 
@@ -117,7 +117,7 @@ Conversation style:
 - Use short sentences.
 - Use contractions like "I can" and "we're".
 - Never sound scripted or robotic.
-- Do NOT immediately ask for their name.
+- Do not immediately ask for their name.
 - First understand what they need.
 - Ask one question at a time.
 - Keep the conversation moving naturally.
@@ -127,16 +127,11 @@ Conversation style:
 - If something sounds urgent, tell them to call {CLINIC_PHONE} right away or seek urgent care.
 - Do not say you are an AI unless directly asked.
 
-Natural flow examples:
-
-Caller: "I want to book an appointment"
-AI: "Sure thing — what were you looking to come in for?"
-
-Caller: "Eye exam"
-AI: "Got it. And what day were you hoping for?"
-
-Caller: "Next week"
-AI: "Perfect. And what's your name?"
+Examples of good tone:
+- "Sure thing — what were you looking to come in for?"
+- "Got it. And what day were you hoping for?"
+- "Perfect. What's your name?"
+- "Absolutely. I can help with that."
 
 If booking an appointment, eventually collect:
 1. full name
@@ -279,20 +274,30 @@ async def voice_entry(request: Request) -> Response:
 # Realtime helpers
 # -----------------------------
 async def initialize_realtime_session(openai_ws) -> None:
+    """
+    OpenAI Realtime now expects session.type = "realtime".
+    It also supports structured audio config for input/output.
+    """
     session_update = {
         "type": "session.update",
         "session": {
+            "type": "realtime",
             "instructions": build_voice_system_prompt(),
-            "voice": VOICE_NAME,
-            "input_audio_format": "g711_ulaw",
-            "output_audio_format": "g711_ulaw",
-            "modalities": ["audio", "text"],
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.5,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 500,
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcmu"},
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "prefix_padding_ms": 300,
+                        "silence_duration_ms": 500,
+                    },
+                },
+                "output": {
+                    "format": {"type": "audio/pcmu"},
+                    "voice": VOICE_NAME,
+                },
             },
+            "output_modalities": ["audio"],
             "temperature": 0.7,
         },
     }
@@ -313,7 +318,7 @@ async def send_initial_greeting(openai_ws) -> None:
                     "text": (
                         f"Greet the caller warmly as the receptionist for {CLINIC_NAME}. "
                         f"Introduce the clinic once, then ask how you can help today. "
-                        f"Keep it natural and under 18 words."
+                        f"Keep it natural and short."
                     ),
                 }
             ],
@@ -392,6 +397,7 @@ async def media_stream(websocket: WebSocket) -> None:
 
             async def receive_from_twilio() -> None:
                 nonlocal stream_sid, latest_media_timestamp
+
                 try:
                     while True:
                         message = await websocket.receive_text()
@@ -418,6 +424,7 @@ async def media_stream(websocket: WebSocket) -> None:
                         elif event_type == "stop":
                             logger.info("Twilio stream stopped")
                             break
+
                 except WebSocketDisconnect:
                     logger.info("Twilio websocket disconnected")
                 except Exception:
@@ -425,19 +432,18 @@ async def media_stream(websocket: WebSocket) -> None:
 
             async def send_to_twilio() -> None:
                 nonlocal stream_sid, last_assistant_item, response_start_timestamp_twilio
+
                 try:
                     async for openai_message in openai_ws:
                         response = json.loads(openai_message)
                         event_type = response.get("type")
 
                         if event_type == "response.audio.delta" and response.get("delta"):
-                            audio_delta = response["delta"]
-
                             media_event = {
                                 "event": "media",
                                 "streamSid": stream_sid,
                                 "media": {
-                                    "payload": audio_delta,
+                                    "payload": response["delta"],
                                 },
                             }
                             await websocket.send_json(media_event)
