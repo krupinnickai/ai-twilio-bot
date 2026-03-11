@@ -298,7 +298,6 @@ async def initialize_realtime_session(openai_ws) -> None:
                 },
             },
             "output_modalities": ["audio"],
-            "temperature": 0.7,
         },
     }
 
