@@ -433,7 +433,7 @@ async def media_stream(websocket: WebSocket) -> None:
                         response = json.loads(openai_message)
                         event_type = response.get("type")
 
-                        if event_type == "response.audio.delta" and response.get("delta"):
+                        if event_type == "response.output_audio.delta" and response.get("delta"):
                             media_event = {
                                 "event": "media",
                                 "streamSid": stream_sid,
