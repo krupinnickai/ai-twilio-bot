@@ -28,7 +28,7 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 SMS_MODEL = os.getenv("SMS_MODEL", "gpt-4.1-mini")
 VOICE_MODEL = os.getenv("VOICE_MODEL", "gpt-realtime")
-VOICE_NAME = os.getenv("VOICE_NAME", "marin")  # try cedar if you prefer
+VOICE_NAME = os.getenv("VOICE_NAME", "marin")
 
 CLINIC_NAME = os.getenv("CLINIC_NAME", "ID Eye & Aesthetics")
 CLINIC_PHONE = os.getenv("CLINIC_PHONE", "+1 877-268-2880")
@@ -274,10 +274,6 @@ async def voice_entry(request: Request) -> Response:
 # Realtime helpers
 # -----------------------------
 async def initialize_realtime_session(openai_ws) -> None:
-    """
-    OpenAI Realtime now expects session.type = "realtime".
-    It also supports structured audio config for input/output.
-    """
     session_update = {
         "type": "session.update",
         "session": {
@@ -298,7 +294,6 @@ async def initialize_realtime_session(openai_ws) -> None:
                 },
             },
             "output_modalities": ["audio"],
-            "temperature": 0.7,
         },
     }
 
@@ -356,9 +351,6 @@ async def media_stream(websocket: WebSocket) -> None:
         ) as openai_ws:
             await initialize_realtime_session(openai_ws)
 
-            if AI_GREETS_FIRST:
-                await send_initial_greeting(openai_ws)
-
             async def send_mark() -> None:
                 nonlocal stream_sid, mark_queue
                 if stream_sid:
@@ -408,6 +400,9 @@ async def media_stream(websocket: WebSocket) -> None:
                             stream_sid = data["start"]["streamSid"]
                             logger.info("Incoming call stream started: %s", stream_sid)
                             latest_media_timestamp = 0
+
+                            if AI_GREETS_FIRST:
+                                await send_initial_greeting(openai_ws)
 
                         elif event_type == "media":
                             latest_media_timestamp = int(data["media"]["timestamp"])
