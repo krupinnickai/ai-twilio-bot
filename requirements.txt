@@ -1,6 +1,7 @@
 fastapi
 uvicorn
-python-dotenv
-twilio
 openai
+twilio
+python-dotenv
 python-multipart
+websockets
