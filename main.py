@@ -285,7 +285,8 @@ async def initialize_realtime_session(openai_ws) -> None:
                     "turn_detection": {
                         "type": "server_vad",
                         "prefix_padding_ms": 300,
-                        "silence_duration_ms": 500,
+                        "silence_duration_ms": 800,
+                         "threshold": 0.8,
                     },
                 },
                 "output": {
